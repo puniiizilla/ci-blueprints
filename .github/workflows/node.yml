@@ -8,9 +8,6 @@ on:
       package-manager:
         type: string
         default: "npm"
-permissions:
-  contents: read
-  packages: write
 jobs:
   lint-and-test:
     runs-on: ubuntu-latest
@@ -19,44 +16,17 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ inputs.node-version }}
-      - name: Install
-        run: npm ci || npm install
-      - name: Lint
-        run: npm run lint --if-present
+      - run: npm ci || npm install
+      - run: npm run lint --if-present
       - name: Typecheck
         run: |
-          if [ -f tsconfig.json ]; then npx --yes tsc --noEmit; else echo "skip"; fi
-      - name: Test
-        run: npm test --if-present
-      - name: Build
-        run: npm run build --if-present
+          if [ -f tsconfig.json ]; then npx --yes tsc --noEmit; else echo skip; fi
+      - run: npm test --if-present
+      - run: npm run build --if-present
 
   docker:
     runs-on: ubuntu-latest
     needs: lint-and-test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    permissions:
-      contents: read
-      packages: write
+    if: github.event_name == 'push'
     steps:
-      - uses: actions/checkout@v4
-      - name: Check Dockerfile
-        id: check
-        run: |
-          if [ -f Dockerfile ]; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "exists=false" >> "$GITHUB_OUTPUT"; fi
-      - name: Log in to ghcr.io
-        if: steps.check.outputs.exists == 'true'
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build + push
-        if: steps.check.outputs.exists == 'true'
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: true
-          tags: |
-            ghcr.io/${{ github.repository }}:${{ github.sha }}
-            ghcr.io/${{ github.repository }}:latest
+      - run: echo "docker placeholder"
