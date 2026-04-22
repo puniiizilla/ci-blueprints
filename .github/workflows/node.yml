@@ -1,30 +1,55 @@
 name: Node CI Blueprint
+
 on:
   workflow_call:
     inputs:
       node-version:
+        description: "Node.js version"
         type: string
         default: "20"
       package-manager:
+        description: "npm | pnpm | yarn"
         type: string
         default: "npm"
+
 jobs:
   lint-and-test:
+    name: Lint, Typecheck, Test, Build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ inputs.node-version }}
-      - run: npm ci || npm install
-      - run: npm run lint --if-present
+
+      - name: Install
+        run: |
+          case "${{ inputs.package-manager }}" in
+            pnpm) corepack enable && pnpm install --frozen-lockfile || pnpm install ;;
+            yarn) corepack enable && yarn install --frozen-lockfile || yarn install ;;
+            *)    npm ci || npm install ;;
+          esac
+
+      - name: Lint
+        run: ${{ inputs.package-manager }} run lint --if-present
+
       - name: Typecheck
         run: |
-          if [ -f tsconfig.json ]; then npx --yes tsc --noEmit; else echo skip; fi
-      - run: npm test --if-present
-      - run: npm run build --if-present
+          if [ -f tsconfig.json ]; then
+            npx --yes tsc --noEmit || exit 1
+          else
+            echo "no tsconfig.json — skipping typecheck"
+          fi
+
+      - name: Test
+        run: ${{ inputs.package-manager }} test --if-present
+
+      - name: Build
+        run: ${{ inputs.package-manager }} run build --if-present
 
   docker:
+    name: Docker Build + Push (ghcr.io)
     runs-on: ubuntu-latest
     needs: lint-and-test
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -33,14 +58,31 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v4
-      - name: Check Dockerfile
+
+      - name: Check Dockerfile exists
         id: check
         run: |
-          if [ -f Dockerfile ]; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "exists=false" >> "$GITHUB_OUTPUT"; fi
-      - name: Log in ghcr.io
+          if [ -f Dockerfile ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "No Dockerfile — skipping image build."
+          fi
+
+      - name: Log in to ghcr.io
         if: steps.check.outputs.exists == 'true'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build + push image
+        if: steps.check.outputs.exists == 'true'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}:${{ github.sha }}
+            ghcr.io/${{ github.repository }}:latest
